@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio Finger Print Station</title>
+    <style>
+        :root { 
+            --crt-green: #33ff00; 
+            --crt-cyan: #00ffff;
+            --crt-dark: #051a00; 
+        }
+        body {
+            background-color: #111; color: var(--crt-green);
+            font-family: 'Courier New', Courier, monospace;
+            display: flex; flex-direction: column; align-items: center;
+            margin: 0; padding: 20px; user-select: none;
+        }
+        h1 { text-transform: uppercase; text-shadow: 0 0 10px var(--crt-green); margin-bottom: 5px; }
+        .controls { margin-bottom: 15px; display: flex; gap: 15px; }
+        button {
+            background-color: #222; color: var(--crt-green);
+            border: 2px solid var(--crt-green); padding: 10px 20px;
+            font-family: inherit; font-size: 1.1em; cursor: pointer;
+            border-radius: 5px; text-transform: uppercase; font-weight: bold;
+            transition: 0.2s;
+        }
+        button:hover { background-color: var(--crt-green); color: #000; box-shadow: 0 0 15px var(--crt-green); }
+        button.active { background-color: var(--crt-green); color: #000; }
+        
+        #btn-new-student {
+            background-color: #113333; color: var(--crt-cyan); border-color: var(--crt-cyan);
+            margin-top: 15px; font-size: 0.9em; padding: 8px 15px;
+        }
+        #btn-new-student:hover { background-color: var(--crt-cyan); color: #000; box-shadow: 0 0 15px var(--crt-cyan); }
+
+        /* Layout wrapper for side-by-side CRT and Morse Grid */
+        #main-workspace {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            align-items: flex-start;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        #crt-container { position: relative; width: 800px; height: 250px; }
+        canvas {
+            background-color: var(--crt-dark); border: 4px solid #444; border-radius: 20px;
+            box-shadow: inset 0 0 40px #000, 0 0 20px var(--crt-green); display: block;
+            transition: box-shadow 0.3s;
+        }
+        #crt-container::after {
+            content: " "; display: block; position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px;
+            border-radius: 16px; background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%), linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06));
+            z-index: 2; background-size: 100% 4px, 3px 100%; pointer-events: none;
+        }
+        
+        #intercept-data { position: absolute; top: 15px; left: 25px; z-index: 3; font-weight: bold; text-shadow: 0 0 5px var(--crt-green); }
+        #feedback-text {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 2.5em; font-weight: bold; z-index: 10; text-shadow: 0 0 15px #000; text-align: center; width: 100%;
+        }
+        
+        /* Dictionary Styling */
+        #dictionary-section { width: 100%; max-width: 800px; }
+        #dictionary { display: flex; gap: 15px; justify-content: center; }
+        .fist-card {
+            background-color: #1a2215; border: 2px solid #444; padding: 10px;
+            text-align: center; border-radius: 10px; cursor: pointer; transition: 0.2s; width: 250px;
+        }
+        .fist-card:hover { border-color: var(--crt-green); background-color: #25331d; transform: translateY(-5px); }
+        .waveform { stroke: var(--crt-green); stroke-width: 2; fill: none; stroke-linejoin: round; }
+        .guide-line { stroke: #444; stroke-width: 1; stroke-dasharray: 4; }
+        
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 100; display: flex;
+            justify-content: center; align-items: center; flex-direction: column;
+        }
+
+        /* 3-Column Morse Code Alphabet */
+        #morse-sidebar {
+            display: none; /* Hidden by default */
+            width: 340px; 
+            background: #1a2215; padding: 15px; border: 2px solid #444; border-radius: 8px;
+            color: var(--crt-cyan);
+        }
+        #morse-sidebar h3 { margin-top: 0; text-align: center; font-size: 1.1em; color: #fff; }
+        #morse-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; 
+            text-align: left;
+        }
+        .morse-item { display: flex; justify-content: space-between; padding: 4px 6px; background: #111; border-radius: 4px;}
+        .morse-letter { color: #fff; font-weight: bold; }
+        .morse-code { letter-spacing: 1px; font-weight: bold; }
+        
+        #manual-instructions { text-align: center; max-width: 800px; color: var(--crt-cyan); display: none; margin-top: 10px;}
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <h1 style="font-size: 3em;">R.F.P. STATION POWER OFF</h1>
+        <p>Ensure headphones/speakers are on to hear the signals.</p>
+        <button onclick="powerOn()">Power On Equipment</button>
+    </div>
+
+    <h1>Top Secret: Signal Analysis</h1>
+    
+    <div class="controls">
+        <button id="btn-intercept" class="active" onclick="setMode('intercept')">1. Intercept Mode</button>
+        <button id="btn-manual" onclick="setMode('manual')">2. Try It Yourself</button>
+    </div>
+
+    <div id="main-workspace">
+        <div id="crt-column">
+            <div id="crt-container">
+                <div id="intercept-data">STATUS: AWAITING BOOT...</div>
+                <div id="feedback-text"></div>
+                <canvas id="crt-screen" width="800" height="250"></canvas>
+            </div>
+            
+            <div id="manual-instructions">
+                <h3>Capture Your "Human Fist"</h3>
+                <p>Hold down the <b>SPACEBAR</b> to transmit. Watch the leading edge of your signal to see your electronic fingerprint!</p>
+                <button id="btn-new-student" onclick="newStudent()">Assign Next Student</button>
+            </div>
+        </div>
+
+        <div id="morse-sidebar">
+            <h3>Morse Code Alphabet</h3>
+            <div id="morse-grid">
+                <div class="morse-item"><span class="morse-letter">A</span> <span class="morse-code">.-</span></div>
+                <div class="morse-item"><span class="morse-letter">B</span> <span class="morse-code">-...</span></div>
+                <div class="morse-item"><span class="morse-letter">C</span> <span class="morse-code">-.-.</span></div>
+                <div class="morse-item"><span class="morse-letter">D</span> <span class="morse-code">-..</span></div>
+                <div class="morse-item"><span class="morse-letter">E</span> <span class="morse-code">.</span></div>
+                <div class="morse-item"><span class="morse-letter">F</span> <span class="morse-code">..-.</span></div>
+                <div class="morse-item"><span class="morse-letter">G</span> <span class="morse-code">--.</span></div>
+                <div class="morse-item"><span class="morse-letter">H</span> <span class="morse-code">....</span></div>
+                <div class="morse-item"><span class="morse-letter">I</span> <span class="morse-code">..</span></div>
+                <div class="morse-item"><span class="morse-letter">J</span> <span class="morse-code">.---</span></div>
+                <div class="morse-item"><span class="morse-letter">K</span> <span class="morse-code">-.-</span></div>
+                <div class="morse-item"><span class="morse-letter">L</span> <span class="morse-code">.-..</span></div>
+                <div class="morse-item"><span class="morse-letter">M</span> <span class="morse-code">--</span></div>
+                <div class="morse-item"><span class="morse-letter">N</span> <span class="morse-code">-.</span></div>
+                <div class="morse-item"><span class="morse-letter">O</span> <span class="morse-code">---</span></div>
+                <div class="morse-item"><span class="morse-letter">P</span> <span class="morse-code">.--.</span></div>
+                <div class="morse-item"><span class="morse-letter">Q</span> <span class="morse-code">--.-</span></div>
+                <div class="morse-item"><span class="morse-letter">R</span> <span class="morse-code">.-.</span></div>
+                <div class="morse-item"><span class="morse-letter">S</span> <span class="morse-code">...</span></div>
+                <div class="morse-item"><span class="morse-letter">T</span> <span class="morse-code">-</span></div>
+                <div class="morse-item"><span class="morse-letter">U</span> <span class="morse-code">..-</span></div>
+                <div class="morse-item"><span class="morse-letter">V</span> <span class="morse-code">...-</span></div>
+                <div class="morse-item"><span class="morse-letter">W</span> <span class="morse-code">.--</span></div>
+                <div class="morse-item"><span class="morse-letter">X</span> <span class="morse-code">-..-</span></div>
+                <div class="morse-item"><span class="morse-letter">Y</span> <span class="morse-code">-.--</span></div>
+                <div class="morse-item"><span class="morse-letter">Z</span> <span class="morse-code">--..</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="dictionary-section">
+        <h3 style="text-align: center; margin-top: 0;">Electronic Fingerprint Dictionary</h3>
+        <div id="dictionary">
+            <div class="fist-card" onclick="checkMatch(0)">
+                <svg width="230" height="80" viewBox="0 0 200 100">
+                    <line x1="0" y1="80" x2="200" y2="80" class="guide-line" />
+                    <line x1="0" y1="30" x2="200" y2="30" class="guide-line" />
+                    <path class="waveform" d="M 20 80 L 20 20 L 30 35 L 40 30 L 180 30" />
+                </svg>
+                <div><strong>Type A: Micro-Spike</strong><br><small>Tiny spike before settling.</small></div>
+            </div>
+            <div class="fist-card" onclick="checkMatch(1)">
+                <svg width="230" height="80" viewBox="0 0 200 100">
+                    <line x1="0" y1="80" x2="200" y2="80" class="guide-line" />
+                    <line x1="0" y1="30" x2="200" y2="30" class="guide-line" />
+                    <path class="waveform" d="M 20 80 L 20 40 L 35 30 L 180 30" />
+                </svg>
+                <div><strong>Type B: Soft Corner</strong><br><small>Slightly rounded top edge.</small></div>
+            </div>
+            <div class="fist-card" onclick="checkMatch(2)">
+                <svg width="230" height="80" viewBox="0 0 200 100">
+                    <line x1="0" y1="80" x2="200" y2="80" class="guide-line" />
+                    <line x1="0" y1="30" x2="200" y2="30" class="guide-line" />
+                    <path class="waveform" d="M 20 80 L 20 45 L 30 45 L 30 30 L 180 30" />
+                </svg>
+                <div><strong>Type C: Micro-Step</strong><br><small>Tiny hesitation halfway up.</small></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('crt-screen');
+        const ctx = canvas.getContext('2d');
+        
+        let envelopeData = new Array(800).fill(0);
+        let currentTarget = 0;
+        let mode = 'intercept';
+        let isSimulating = false;
+        let transmissionQueue = [];
+        
+        const MAX_AMP = 70;
+        let audioCtx, oscillator, gainNode;
+        
+        let isSpacebarDown = false;
+        let playerFistType = 0;
+        let manualFrameCounter = 0;
+        let drawColor = '#33ff00'; 
+
+        function powerOn() {
+            document.getElementById('overlay').style.display = 'none';
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            oscillator = audioCtx.createOscillator();
+            gainNode = audioCtx.createGain();
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(700, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+
+            setMode('intercept');
+            requestAnimationFrame(renderLoop);
+        }
+
+        function setMode(newMode) {
+            mode = newMode;
+            document.getElementById('btn-intercept').classList.remove('active');
+            document.getElementById('btn-manual').classList.remove('active');
+            document.getElementById('btn-' + mode).classList.add('active');
+            
+            envelopeData.fill(0); 
+            transmissionQueue = [];
+            gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
+            
+            if (mode === 'intercept') {
+                drawColor = '#33ff00'; 
+                canvas.style.boxShadow = "inset 0 0 40px #000, 0 0 20px #33ff00";
+                
+                document.getElementById('dictionary-section').style.display = 'block';
+                document.getElementById('morse-sidebar').style.display = 'none';
+                document.getElementById('manual-instructions').style.display = 'none';
+                document.getElementById('intercept-data').style.color = 'var(--crt-green)';
+                generateNewIntercept();
+            } else {
+                drawColor = '#00ffff'; 
+                canvas.style.boxShadow = "inset 0 0 40px #000, 0 0 20px #00ffff";
+                
+                playerFistType = Math.floor(Math.random() * 3);
+                updatePlayerProfileText();
+                
+                document.getElementById('dictionary-section').style.display = 'none';
+                document.getElementById('morse-sidebar').style.display = 'block';
+                document.getElementById('manual-instructions').style.display = 'block';
+                document.getElementById('intercept-data').style.color = 'var(--crt-cyan)';
+                document.getElementById('feedback-text').innerText = "";
+            }
+        }
+
+        function newStudent() {
+            // Guarantee the next student gets a different profile than the current one
+            let randomShift = Math.floor(Math.random() * 2) + 1; // 1 or 2
+            playerFistType = (playerFistType + randomShift) % 3;
+            
+            updatePlayerProfileText();
+            manualFrameCounter = 0;
+            envelopeData.fill(0); // Clear the screen for the new student
+            
+            // Visual flash to confirm the change
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.8)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function updatePlayerProfileText() {
+            let profileNames = [" ", " ", " "];
+            document.getElementById('intercept-data').innerText = `MANUAL TRANSMITTER ACTIVE ${profileNames[playerFistType]}`;
+        }
+
+        function getTransientAmp(fistType, frame, maxAmp) {
+            let speedMod = (mode === 'manual') ? 0.8 : 1.5; 
+            if (frame >= 15 / speedMod) return maxAmp; 
+            
+            if (fistType === 0) { 
+                return maxAmp * (1 + 0.2 * Math.exp(-frame*speedMod) * Math.cos(frame*speedMod));
+            } 
+            else if (fistType === 1) { 
+                return maxAmp * (1 - Math.exp(-frame*speedMod));
+            } 
+            else if (fistType === 2) { 
+                return (frame < 6 / speedMod) ? maxAmp * 0.5 : maxAmp;
+            }
+            return maxAmp;
+        }
+
+        function buildTransmission(fistType) {
+            transmissionQueue = [];
+            for(let i=0; i<60; i++) transmissionQueue.push(0); 
+            
+            const symbols = ['.', '-', '.', '-', '-', '.'].sort(() => Math.random() - 0.5);
+            
+            for(let s=0; s<10; s++) { 
+                let sym = symbols[s % symbols.length];
+                let duration = (sym === '.') ? 15 : 45; 
+                
+                for(let i=0; i<duration; i++) {
+                    transmissionQueue.push(getTransientAmp(fistType, i, MAX_AMP));
+                }
+                for(let i=0; i<15; i++) transmissionQueue.push(0); 
+            }
+            for(let i=0; i<100; i++) transmissionQueue.push(0); 
+        }
+
+        function generateNewIntercept() {
+            currentTarget = Math.floor(Math.random() * 3);
+            buildTransmission(currentTarget);
+            isSimulating = true;
+            document.getElementById('feedback-text').innerText = "";
+            document.getElementById('intercept-data').innerText = "STATUS: INTERCEPTING HIGH-SPEED SIGNAL...";
+        }
+
+        window.addEventListener('keydown', function(e) {
+            if (mode === 'manual' && e.code === 'Space') {
+                if(!isSpacebarDown) { 
+                    e.preventDefault();
+                    isSpacebarDown = true;
+                    manualFrameCounter = 0; 
+                    gainNode.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.01);
+                }
+            }
+        });
+
+        window.addEventListener('keyup', function(e) {
+            if (mode === 'manual' && e.code === 'Space') {
+                e.preventDefault();
+                isSpacebarDown = false;
+                gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01);
+            }
+        });
+
+        function renderLoop() {
+            for(let step=0; step<2; step++) {
+                envelopeData.shift(); 
+                let newAmp = 0;
+
+                if (mode === 'intercept') {
+                    if (isSimulating && transmissionQueue.length > 0) {
+                        newAmp = transmissionQueue.shift();
+                        if(step === 0) {
+                            let audioVol = (newAmp / MAX_AMP) * 0.5;
+                            gainNode.gain.setTargetAtTime(audioVol, audioCtx.currentTime, 0.01);
+                        }
+                    } else if (isSimulating && transmissionQueue.length === 0) {
+                        buildTransmission(currentTarget);
+                    }
+                } else if (mode === 'manual') {
+                    if (isSpacebarDown) {
+                        newAmp = getTransientAmp(playerFistType, manualFrameCounter, MAX_AMP);
+                        manualFrameCounter++;
+                    }
+                }
+                envelopeData.push(newAmp); 
+            }
+
+            ctx.fillStyle = 'rgba(5, 26, 0, 0.35)'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.beginPath();
+            ctx.strokeStyle = drawColor; 
+            ctx.lineWidth = 1.5;
+            
+            let baseline = canvas.height / 2;
+
+            for(let x=0; x<canvas.width; x++) {
+                let targetAmp = envelopeData[x];
+                let noisyAmp = targetAmp + (Math.random() * 8 - 4); 
+                if (noisyAmp < 2 && targetAmp === 0) noisyAmp = Math.random() * 3; 
+                
+                ctx.moveTo(x, baseline - noisyAmp);
+                ctx.lineTo(x, baseline + noisyAmp);
+            }
+            ctx.stroke();
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        function checkMatch(guessIndex) {
+            if (mode !== 'intercept' || !isSimulating) return;
+
+            const feedback = document.getElementById('feedback-text');
+            const dataText = document.getElementById('intercept-data');
+            
+            isSimulating = false; 
+            gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.01); 
+
+            if (guessIndex === currentTarget) {
+                feedback.innerText = "ACCURATE MATCH!";
+                feedback.style.color = "#33ff00";
+                dataText.innerText = "STATUS: ENEMY IDENTIFIED.";
+                canvas.style.boxShadow = "inset 0 0 40px #000, 0 0 60px #33ff00";
+            } else {
+                feedback.innerText = "INCORRECT MATCH!";
+                feedback.style.color = "#ff3333";
+                dataText.innerText = "STATUS: TARGET MISIDENTIFIED.";
+                canvas.style.boxShadow = "inset 0 0 40px #000, 0 0 60px #ff3333";
+            }
+
+            setTimeout(() => {
+                canvas.style.boxShadow = "inset 0 0 40px #000, 0 0 20px var(--crt-green)";
+                generateNewIntercept();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+
